@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Packing Sandbox & Puzzle</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Circle Packing Challenge</h1>
+
+    <div id="mode-switch">
+        <button class="mode-button active" data-mode="sandbox">Soft Edge Sandbox</button>
+        <button class="mode-button" data-mode="puzzle">Hard Edge Puzzle</button>
+    </div>
+
+    <div id="controls-panel">
+        <h2>Settings</h2>
+        
+        <div id="sandbox-controls">
+            <div class="control-group">
+                <label for="coin-radius">Coin Radius (px): <span id="radius-display">20</span></label>
+                <input type="range" id="coin-radius" min="10" max="80" value="20">
+            </div>
+            <p style="color: grey; font-size: 0.9em; margin-top: -10px;">Box size fixed to 300x300px for soft-edge packing.</p>
+        </div>
+
+        <div id="puzzle-controls" style="display:none;">
+            <p>Coin Diameter: **1 cm**</p>
+            <p>Box Size: **10 cm x 10 cm**</p>
+            <p style="color: grey; font-size: 0.9em; margin-top: 10px;">Scale: 1 cm = 30 pixels</p>
+        </div>
+    </div>
+    
+    <div id="game-area">
+        <div id="staging-area">
+            <h3>Coin Supply</h3>
+        </div>
+
+        <div id="packing-area">
+        </div>
+    </div>
+
+    <div id="info-panel">
+        <p><strong>Mode:</strong> <span id="mode-display">Sandbox</span></p>
+        <p><strong>Container Area:</strong> <span id="container-info-display"></span></p>
+        <p><strong>Coins Packed:</strong> <span id="coin-count-display">0</span></p>
+
+        <div id="sandbox-info">
+            <p><strong>Valid Packed Area:</strong> <span id="packed-area-display">0.00</span> sq px</p>
+            <p><strong>Packing Density:</strong> <span id="density-display" class="large-density">0.00%</span></p>
+        </div>
+
+        <div id="puzzle-info" style="display:none;">
+            <p class="result-message">Only coins **fully inside** the box are counted.</p>
+        </div>
+
+        <p class="overlap-warning">Coins must not overlap (no red coins) for a valid attempt.</p>
+        <button id="reset-button">Clear Box</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
