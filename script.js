@@ -21,18 +21,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const BOX_SIZE = 300;
     const FIXED_CONTAINER_AREA_SANDBOX = BOX_SIZE * BOX_SIZE;
 
-    // --- PUZZLE SCALED CONSTANTS (Maintains the 64.27mm / 19.05mm ratio ≈ 3.37) ---
+    // --- PUZZLE SCALED CONSTANTS ---
     const PUZZLE_BOX_SIZE = 300;
-    const PUZZLE_COIN_DIAMETER = 89.0; // 300 / (64.27 / 19.05) ≈ 88.75px, rounded to 89
-    const PUZZLE_COIN_RADIUS = PUZZLE_COIN_DIAMETER / 2; // 44.5 px
-    const FIXED_CONTAINER_AREA_PUZZLE = PUZZLE_BOX_SIZE * PUZZLE_BOX_SIZE;
+    const PUZZLE_COIN_DIAMETER = 89.0;
+    const PUZZLE_COIN_RADIUS = PUZZLE_COIN_DIAMETER / 2;
 
     // --- GAME STATE ---
     let currentMode = 'sandbox';
     let COIN_RADIUS_PX;
     let COIN_DIAMETER_PX;
     let COIN_AREA;
-    let BOX_SIZE_CURRENT; // Dynamic box size based on mode
+    let BOX_SIZE_CURRENT;
     let nextCoinId = 0;
     let packedCoins = [];
 
@@ -64,19 +63,29 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
+    /**
+     * Clamps a coin's center position inside the hard boundary zone [R, BOX_SIZE - R].
+     */
+    function clampToBoundary(x, y, radius, boxSize) {
+        const minPos = radius;
+        const maxPos = boxSize - radius;
+        return {
+            x: Math.max(minPos, Math.min(x, maxPos)),
+            y: Math.max(minPos, Math.min(y, maxPos))
+        };
+    }
+
     // --- MODE SWITCHING & INIT ---
 
     function switchMode(mode) {
         if (currentMode === mode) return;
 
-        // Clear the board on mode switch
         packedCoins.forEach(coin => coin.el.remove());
         packedCoins = [];
         nextCoinId = 0;
 
         currentMode = mode;
 
-        // 1. Update UI visibility
         modeButtons.forEach(btn => btn.classList.remove('active'));
         document.querySelector(`.mode-button[data-mode="${mode}"]`).classList.add('active');
         
@@ -86,31 +95,27 @@ document.addEventListener('DOMContentLoaded', () => {
         sandboxInfo.style.display = mode === 'sandbox' ? 'block' : 'none';
         puzzleInfo.style.display = mode === 'puzzle' ? 'block' : 'none';
 
-        // 2. Set box rules and coin size
         if (mode === 'sandbox') {
-            // Soft Edge Sandbox (Variable Coin Size)
-            BOX_SIZE_CURRENT = SANDBOX_BOX_SIZE;
+            BOX_SIZE_CURRENT = BOX_SIZE;
             COIN_RADIUS_PX = parseInt(radiusInput.value);
-            packingArea.style.overflow = 'visible'; // Soft edges
+            packingArea.style.overflow = 'visible';
             containerInfoDisplay.textContent = `${BOX_SIZE_CURRENT}px x ${BOX_SIZE_CURRENT}px`;
             radiusInput.disabled = false;
 
         } else {
-            // Hard Edge Puzzle (Fixed Penny Coin)
             BOX_SIZE_CURRENT = PUZZLE_BOX_SIZE;
             COIN_RADIUS_PX = PUZZLE_COIN_RADIUS;
-            packingArea.style.overflow = 'hidden'; // Hard edges
-            containerInfoDisplay.innerHTML = `Puzzle Box: 300px x 300px<br>Coin Diameter: ${PUZZLE_COIN_DIAMETER}px`;
+            packingArea.style.overflow = 'hidden'; 
+            containerInfoDisplay.innerHTML = `Puzzle Box: ${BOX_SIZE_CURRENT}px x ${BOX_SIZE_CURRENT}px<br>Coin Diameter: ${PUZZLE_COIN_DIAMETER}px`;
             radiusInput.disabled = true;
         }
 
         initializeBox();
-        updateCoinSize(true); // Force update coin size/supply
+        updateCoinSize(true); 
         updateCountAndDensity();
     }
 
     function initializeBox() {
-        // Ensure box size is explicitly set to 300x300 in JS
         packingArea.style.width = `${BOX_SIZE_CURRENT}px`;
         packingArea.style.height = `${BOX_SIZE_CURRENT}px`;
     }
@@ -135,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
             coin.el.style.width = `${COIN_DIAMETER_PX}px`;
             coin.el.style.height = `${COIN_DIAMETER_PX}px`;
             
-            // Reposition coin based on its new size relative to its center (x, y)
             coin.el.style.left = `${coin.x - COIN_RADIUS_PX}px`;
             coin.el.style.top = `${coin.y - COIN_RADIUS_PX}px`;
         });
@@ -144,14 +148,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function createSupplyCoin() {
-        // Clear existing supply coins
         stagingArea.querySelectorAll('.coin').forEach(c => {
             if(c.classList.contains('supply-coin')) c.remove();
         });
         
         const coinEl = document.createElement('div');
         coinEl.classList.add('coin', 'supply-coin');
-        // Ensure coin size is set based on current variables
         coinEl.style.width = `${COIN_DIAMETER_PX}px`;
         coinEl.style.height = `${COIN_DIAMETER_PX}px`;
 
@@ -237,12 +239,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const coords = getClientCoords(event);
         
-        const newCenterScreenX = coords.clientX - offset.x;
-        const newCenterScreenY = coords.clientY - offset.y;
+        let newCenterScreenX = coords.clientX - offset.x;
+        let newCenterScreenY = coords.clientY - offset.y;
+        
+        const rect = packingArea.getBoundingClientRect();
+        
+        // --- FIX: CLAMP DRAG POSITION AT WALLS IN PUZZLE MODE ---
+        if (currentMode === 'puzzle') {
+            const minScreenX = rect.left + COIN_RADIUS_PX;
+            const maxScreenX = rect.right - COIN_RADIUS_PX;
+            const minScreenY = rect.top + COIN_RADIUS_PX;
+            const maxScreenY = rect.bottom - COIN_RADIUS_PX;
 
+            // Clamp the center screen position directly
+            newCenterScreenX = Math.max(minScreenX, Math.min(newCenterScreenX, maxScreenX));
+            newCenterScreenY = Math.max(minScreenY, Math.min(newCenterScreenY, maxScreenY));
+        }
+        
+        // 1. Set coin position on screen
         draggedCoin.el.style.left = `${newCenterScreenX - COIN_RADIUS_PX}px`;
         draggedCoin.el.style.top = `${newCenterScreenY - COIN_RADIUS_PX}px`;
 
+        // 2. Update local coin data coordinates
+        draggedCoin.x = newCenterScreenX - rect.left;
+        draggedCoin.y = newCenterScreenY - rect.top;
+
+        // 3. Update density continuously (needed for fast feedback)
+        updateCountAndDensity();
         event.preventDefault(); 
     }
 
@@ -266,10 +289,8 @@ document.addEventListener('DOMContentLoaded', () => {
         );
 
         let droppedInFinalArea = false;
-        let requiresRemoval = false;
 
         if (currentMode === 'sandbox') {
-            // SANDBOX: Center must be near the box to be considered packed.
             droppedInFinalArea = (
                 coinCenterScreenX > rect.left - COIN_RADIUS_PX && 
                 coinCenterScreenX < rect.right + COIN_RADIUS_PX && 
@@ -278,14 +299,13 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             
         } else {
-            // PUZZLE: Coins must be fully inside (Hard Boundary)
+            // PUZZLE: Hard Boundary final drop check (must be fully inside)
             droppedInFinalArea = (
                 coinCenterScreenX >= rect.left + COIN_RADIUS_PX && 
                 coinCenterScreenX <= rect.right - COIN_RADIUS_PX && 
                 coinCenterScreenY >= rect.top + COIN_RADIUS_PX && 
                 coinCenterScreenY <= rect.bottom - COIN_RADIUS_PX
             );
-             requiresRemoval = true; 
         }
 
         if (droppedInFinalArea) {
@@ -310,14 +330,11 @@ document.addEventListener('DOMContentLoaded', () => {
             coinEl.style.left = `${draggedCoin.x - COIN_RADIUS_PX}px`;
             coinEl.style.top = `${draggedCoin.y - COIN_RADIUS_PX}px`;
 
-        } else if (isNewCoin || (requiresRemoval && !isNewCoin)) {
-            // New Coin dropped outside OR an existing PUZZLE coin was dropped partially outside
+        } else if (isNewCoin) {
+            // New Coin dropped outside - remove it
             coinEl.remove(); 
-            if (!isNewCoin) { 
-                 packedCoins = packedCoins.filter(c => c.id !== draggedCoin.id);
-            }
         } else {
-            // Snap back to last valid absolute position
+            // Existing coin dropped outside: Snap back to last known position.
             coinEl.style.position = 'absolute';
             coinEl.style.left = `${draggedCoin.x - COIN_RADIUS_PX}px`;
             coinEl.style.top = `${draggedCoin.y - COIN_RADIUS_PX}px`;
@@ -334,23 +351,29 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateCountAndDensity() {
         let validPackedArea = 0;
         let finalCount = 0;
-        const minSeparation = COIN_DIAMETER_PX;
+        
+        // CRITICAL FIX: Use the nominal diameter for checking, plus a small tolerance.
+        const minSeparation = COIN_DIAMETER_PX - 0.5; // Allow 0.5px visual tolerance
+        
         const boxSize = BOX_SIZE_CURRENT;
         const radius = COIN_RADIUS_PX;
-        const containerArea = currentMode === 'sandbox' ? FIXED_CONTAINER_AREA_SANDBOX : FIXED_CONTAINER_AREA_PUZZLE;
+        const containerArea = currentMode === 'sandbox' ? FIXED_CONTAINER_AREA_SANDBOX : BOX_SIZE_CURRENT * BOX_SIZE_CURRENT;
 
         packedCoins.forEach(coin => coin.el.classList.remove('overlapping'));
 
         // 1. Check for overlaps and mark coins
+        let areCoinsOverlapping = false;
         for (let i = 0; i < packedCoins.length; i++) {
             let coinA = packedCoins[i];
             for (let j = i + 1; j < packedCoins.length; j++) {
                 let coinB = packedCoins[j];
                 const dist = distance(coinA, coinB);
                 
-                if (dist < minSeparation) {
+                // Overlap occurs if distance is less than nominal diameter
+                if (dist < COIN_DIAMETER_PX - 0.001) { 
                     coinA.el.classList.add('overlapping');
                     coinB.el.classList.add('overlapping');
+                    areCoinsOverlapping = true;
                 }
             }
         }
@@ -362,7 +385,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const isCenterInsideBox = coin.x >= 0 && coin.x <= boxSize && coin.y >= 0 && coin.y <= boxSize;
 
                 if (currentMode === 'sandbox') {
-                    // SANDBOX: Density based on full coin area if center is in the box
                     if (isCenterInsideBox) {
                         validPackedArea += COIN_AREA;
                     }
