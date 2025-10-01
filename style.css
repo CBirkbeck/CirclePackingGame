@@ -85,14 +85,12 @@ input[type="range"] {
 }
 
 #packing-area {
-    /* Set an initial size here to ensure layout stability */
     width: 300px;
     height: 300px; 
     flex-shrink: 0; 
     position: relative;
     border: 3px solid #333;
     background-color: #e0e0e0;
-    /* overflow is set by JS based on mode */
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -100,7 +98,8 @@ input[type="range"] {
 .coin {
     position: absolute;
     border-radius: 50%;
-    background-color: gold;
+    /* FINAL FIX: Use semi-transparent gold color */
+    background-color: rgba(255, 215, 0, 0.7); 
     border: 2px solid orange;
     box-sizing: border-box;
     cursor: grab;
@@ -117,14 +116,15 @@ input[type="range"] {
 }
 
 .coin.dragging {
-    opacity: 0.7;
+    opacity: 0.9; /* Slight opacity increase while dragging */
     cursor: grabbing;
     z-index: 1000;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
 .coin.overlapping {
-    background-color: red !important;
+    /* Set overlapping color to be red but still translucent */
+    background-color: rgba(255, 0, 0, 0.7) !important; 
     border-color: darkred !important;
 }
 

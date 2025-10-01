@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const stagingArea = document.getElementById('staging-area');
     const packingArea = document.getElementById('packing-area');
-    const coinCountDisplay = document.getElementById('coin-count-display');
     const containerInfoDisplay = document.getElementById('container-info-display');
     const packedAreaDisplay = document.getElementById('packed-area-display');
     const densityDisplay = document.getElementById('density-display');
@@ -20,11 +19,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- GLOBAL CONSTANTS ---
     const BOX_SIZE = 300;
     const FIXED_CONTAINER_AREA_SANDBOX = BOX_SIZE * BOX_SIZE;
-
-    // --- PUZZLE SCALED CONSTANTS ---
     const PUZZLE_BOX_SIZE = 300;
     const PUZZLE_COIN_DIAMETER = 89.0;
     const PUZZLE_COIN_RADIUS = PUZZLE_COIN_DIAMETER / 2;
+    const RESOLUTION_ITERATIONS = 8; 
 
     // --- GAME STATE ---
     let currentMode = 'sandbox';
@@ -62,18 +60,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const dy = coin1.y - coin2.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
-
+    
     /**
-     * Clamps a coin's center position inside the hard boundary zone [R, BOX_SIZE - R].
+     * Calculates the proportion of a circle's diameter that is inside the box (0 to 1).
+     * This approximates the area inside the box.
      */
-    function clampToBoundary(x, y, radius, boxSize) {
-        const minPos = radius;
-        const maxPos = boxSize - radius;
-        return {
-            x: Math.max(minPos, Math.min(x, maxPos)),
-            y: Math.max(minPos, Math.min(y, maxPos))
-        };
+    function getAreaProportionInsideBox(coin, boxSize) {
+        const R = coin.r;
+        const center_x = coin.x;
+        const center_y = coin.y;
+
+        let proportion = 1.0;
+
+        // Check X boundaries
+        if (center_x < R) { // Left edge overlap
+            proportion *= (center_x + R) / (2 * R);
+        } else if (center_x > boxSize - R) { // Right edge overlap
+            proportion *= (boxSize - center_x + R) / (2 * R);
+        }
+
+        // Check Y boundaries
+        if (center_y < R) { // Top edge overlap
+            proportion *= (center_y + R) / (2 * R);
+        } else if (center_y > boxSize - R) { // Bottom edge overlap
+            proportion *= (boxSize - center_y + R) / (2 * R);
+        }
+
+        // The simple multiplication assumes independent overlaps (like a square intersection), 
+        // which is a good, conservative approximation without complex calculus.
+        return Math.max(0, Math.min(1, proportion));
     }
+
 
     // --- MODE SWITCHING & INIT ---
 
@@ -163,6 +180,71 @@ document.addEventListener('DOMContentLoaded', () => {
         stagingArea.appendChild(coinEl);
     }
 
+    // --- PSEUDO-PHYSICS / COLLISION RESOLUTION ---
+
+    function resolveCollisions(isFinalDrop) {
+        const radius = COIN_RADIUS_PX;
+        const minSeparation = COIN_DIAMETER_PX;
+        
+        for (let k = 0; k < RESOLUTION_ITERATIONS; k++) {
+            let changed = false;
+
+            // 1. Resolve coin-to-coin overlaps (Applies to BOTH modes)
+            for (let i = 0; i < packedCoins.length; i++) {
+                let coinA = packedCoins[i];
+                let isCoinADragged = (coinA === draggedCoin && !isFinalDrop);
+
+                for (let j = i + 1; j < packedCoins.length; j++) {
+                    let coinB = packedCoins[j];
+                    let isCoinBDragged = (coinB === draggedCoin && !isFinalDrop);
+
+                    const dist = distance(coinA, coinB);
+
+                    if (dist < minSeparation - 0.001) { 
+                        const overlap = minSeparation - dist;
+                        const angle = Math.atan2(coinB.y - coinA.y, coinB.x - coinA.x);
+                        
+                        const pushX = Math.cos(angle) * (overlap / 2);
+                        const pushY = Math.sin(angle) * (overlap / 2);
+
+                        if (!isCoinADragged) {
+                            coinA.x -= pushX;
+                            coinA.y -= pushY;
+                        }
+                        if (!isCoinBDragged) {
+                            coinB.x += pushX;
+                            coinB.y += pushY;
+                        }
+                        changed = true;
+                    }
+                }
+            }
+            
+            // 2. Clamp coin-to-wall boundaries (Applies ONLY to PUZZLE mode)
+            if (currentMode === 'puzzle' || changed) {
+                packedCoins.forEach(coin => {
+                    if (currentMode === 'puzzle') {
+                        const minPos = radius;
+                        const maxPos = BOX_SIZE_CURRENT - radius;
+
+                        if (coin.x < minPos || coin.x > maxPos || coin.y < minPos || coin.y > maxPos) {
+                            coin.x = Math.max(minPos, Math.min(coin.x, maxPos));
+                            coin.y = Math.max(minPos, Math.min(coin.y, maxPos));
+                            changed = true;
+                        }
+                    }
+
+                    // Update the visual position
+                    coin.el.style.left = `${coin.x - radius}px`;
+                    coin.el.style.top = `${coin.y - radius}px`;
+                });
+            }
+
+            if (!changed && k > 0) break;
+        }
+    }
+
+
     // --- DRAG LOGIC HANDLERS ---
 
     function attachDragListenersToPackedCoin(coinEl, coinData) {
@@ -244,27 +326,20 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const rect = packingArea.getBoundingClientRect();
         
-        // --- FIX: CLAMP DRAG POSITION AT WALLS IN PUZZLE MODE ---
-        if (currentMode === 'puzzle') {
-            const minScreenX = rect.left + COIN_RADIUS_PX;
-            const maxScreenX = rect.right - COIN_RADIUS_PX;
-            const minScreenY = rect.top + COIN_RADIUS_PX;
-            const maxScreenY = rect.bottom - COIN_RADIUS_PX;
-
-            // Clamp the center screen position directly
-            newCenterScreenX = Math.max(minScreenX, Math.min(newCenterScreenX, maxScreenX));
-            newCenterScreenY = Math.max(minScreenY, Math.min(newCenterScreenY, maxScreenY));
-        }
-        
-        // 1. Set coin position on screen
-        draggedCoin.el.style.left = `${newCenterScreenX - COIN_RADIUS_PX}px`;
-        draggedCoin.el.style.top = `${newCenterScreenY - COIN_RADIUS_PX}px`;
-
-        // 2. Update local coin data coordinates
+        // 1. Update dragged coin's internal position data based on input
         draggedCoin.x = newCenterScreenX - rect.left;
         draggedCoin.y = newCenterScreenY - rect.top;
 
-        // 3. Update density continuously (needed for fast feedback)
+        // 2. Resolve collisions (Coin-to-Coin in both modes, Wall-to-Coin in Puzzle mode)
+        resolveCollisions(false);
+        
+        // 3. Update the coin's visual position based on its final (resolved) local position
+        const resolvedScreenX = draggedCoin.x + rect.left;
+        const resolvedScreenY = draggedCoin.y + rect.top;
+        
+        draggedCoin.el.style.left = `${resolvedScreenX - COIN_RADIUS_PX}px`;
+        draggedCoin.el.style.top = `${resolvedScreenY - COIN_RADIUS_PX}px`;
+
         updateCountAndDensity();
         event.preventDefault(); 
     }
@@ -274,45 +349,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         draggedCoin.el.classList.remove('dragging');
         const coinEl = draggedCoin.el;
-        const rect = packingArea.getBoundingClientRect();
-
-        const coinCenterScreenX = parseFloat(coinEl.style.left) + COIN_RADIUS_PX;
-        const coinCenterScreenY = parseFloat(coinEl.style.top) + COIN_RADIUS_PX;
+        
+        // Final collision resolution and boundary clamping
+        resolveCollisions(true);
 
         const dropTolerance = COIN_DIAMETER_PX; 
-        
-        const droppedNearBox = (
-            coinCenterScreenX > rect.left - dropTolerance && 
-            coinCenterScreenX < rect.right + dropTolerance && 
-            coinCenterScreenY > rect.top - dropTolerance && 
-            coinCenterScreenY < rect.bottom + dropTolerance
-        );
+        const isCenterNearBox = (draggedCoin.x > -dropTolerance && draggedCoin.x < BOX_SIZE_CURRENT + dropTolerance && 
+                                 draggedCoin.y > -dropTolerance && draggedCoin.y < BOX_SIZE_CURRENT + dropTolerance);
 
-        let droppedInFinalArea = false;
-
-        if (currentMode === 'sandbox') {
-            droppedInFinalArea = (
-                coinCenterScreenX > rect.left - COIN_RADIUS_PX && 
-                coinCenterScreenX < rect.right + COIN_RADIUS_PX && 
-                coinCenterScreenY > rect.top - COIN_RADIUS_PX && 
-                coinCenterScreenY < rect.bottom + COIN_RADIUS_PX
-            );
+        if (isCenterNearBox) {
             
-        } else {
-            // PUZZLE: Hard Boundary final drop check (must be fully inside)
-            droppedInFinalArea = (
-                coinCenterScreenX >= rect.left + COIN_RADIUS_PX && 
-                coinCenterScreenX <= rect.right - COIN_RADIUS_PX && 
-                coinCenterScreenY >= rect.top + COIN_RADIUS_PX && 
-                coinCenterScreenY <= rect.bottom - COIN_RADIUS_PX
-            );
-        }
-
-        if (droppedInFinalArea) {
-            
-            const localX = coinCenterScreenX - rect.left;
-            const localY = coinCenterScreenY - rect.top;
-
             if (isNewCoin) {
                 coinEl.style.position = 'absolute'; 
                 packingArea.appendChild(coinEl);
@@ -323,18 +369,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 coinEl.style.position = 'absolute';
             }
             
-            // Update coin position
-            draggedCoin.x = localX;
-            draggedCoin.y = localY;
-            
+            // Position is already correct from resolveCollisions
             coinEl.style.left = `${draggedCoin.x - COIN_RADIUS_PX}px`;
             coinEl.style.top = `${draggedCoin.y - COIN_RADIUS_PX}px`;
 
         } else if (isNewCoin) {
-            // New Coin dropped outside - remove it
             coinEl.remove(); 
         } else {
-            // Existing coin dropped outside: Snap back to last known position.
+            // Snap back
             coinEl.style.position = 'absolute';
             coinEl.style.left = `${draggedCoin.x - COIN_RADIUS_PX}px`;
             coinEl.style.top = `${draggedCoin.y - COIN_RADIUS_PX}px`;
@@ -352,8 +394,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let validPackedArea = 0;
         let finalCount = 0;
         
-        // CRITICAL FIX: Use the nominal diameter for checking, plus a small tolerance.
-        const minSeparation = COIN_DIAMETER_PX - 0.5; // Allow 0.5px visual tolerance
+        const COLOR_OVERLAP_THRESHOLD = COIN_DIAMETER_PX - 0.5; 
         
         const boxSize = BOX_SIZE_CURRENT;
         const radius = COIN_RADIUS_PX;
@@ -362,18 +403,15 @@ document.addEventListener('DOMContentLoaded', () => {
         packedCoins.forEach(coin => coin.el.classList.remove('overlapping'));
 
         // 1. Check for overlaps and mark coins
-        let areCoinsOverlapping = false;
         for (let i = 0; i < packedCoins.length; i++) {
             let coinA = packedCoins[i];
             for (let j = i + 1; j < packedCoins.length; j++) {
                 let coinB = packedCoins[j];
                 const dist = distance(coinA, coinB);
                 
-                // Overlap occurs if distance is less than nominal diameter
-                if (dist < COIN_DIAMETER_PX - 0.001) { 
+                if (dist < COLOR_OVERLAP_THRESHOLD) { 
                     coinA.el.classList.add('overlapping');
                     coinB.el.classList.add('overlapping');
-                    areCoinsOverlapping = true;
                 }
             }
         }
@@ -385,9 +423,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const isCenterInsideBox = coin.x >= 0 && coin.x <= boxSize && coin.y >= 0 && coin.y <= boxSize;
 
                 if (currentMode === 'sandbox') {
-                    if (isCenterInsideBox) {
-                        validPackedArea += COIN_AREA;
-                    }
+                    // SANDBOX FIX: Use the approximation function for density calculation
+                    const areaProportion = getAreaProportionInsideBox(coin, boxSize);
+                    validPackedArea += coin.r * coin.r * Math.PI * areaProportion;
                 } else {
                     // PUZZLE: Count only if fully inside the hard boundary zone
                     const isFullyInside = coin.x >= radius && coin.x <= (boxSize - radius) && 
@@ -401,8 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 3. Update displays
-        coinCountDisplay.textContent = currentMode === 'sandbox' ? packedCoins.length : finalCount;
-
+        
         if (currentMode === 'sandbox') {
             const density = containerArea > 0 ? (validPackedArea / containerArea) * 100 : 0;
             packedAreaDisplay.textContent = validPackedArea.toFixed(2);
